@@ -9,6 +9,9 @@ export default function Dashboard() {
   const [title, setTitle] = useState("");
   const [summary, setSummary] = useState("");
   const [content, setContent] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [checking, setChecking] = useState(true);
@@ -38,25 +41,90 @@ export default function Dashboard() {
     if (data) setPosts(data);
   }
 
-  async function handleCreate() {
-    setLoading(true);
-    const { error } = await supabase
-      .from("posts")
-      .insert({ title, summary, content });
-
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    const fileName = `${Date.now()}-${file.name}`;
+    const { error } = await supabase.storage
+      .from("blog-images")
+      .upload(fileName, file);
     if (error) {
-      setMessage("Error creating post: " + error.message);
+      setMessage("Image upload failed: " + error.message);
+      setUploading(false);
+      return;
+    }
+    const { data: urlData } = supabase.storage
+      .from("blog-images")
+      .getPublicUrl(fileName);
+    setImageUrl(urlData.publicUrl);
+    setMessage(
+      "Image uploaded! ✅ Copy this into your content: ![image](" +
+        urlData.publicUrl +
+        ")",
+    );
+    setUploading(false);
+  }
+
+  function handleEdit(post: any) {
+    setEditingId(post.id);
+    setTitle(post.title);
+    setSummary(post.summary);
+    setContent(post.content);
+    setMessage("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handleCancelEdit() {
+    setEditingId(null);
+    setTitle("");
+    setSummary("");
+    setContent("");
+    setMessage("");
+  }
+
+  async function handleSave() {
+    setLoading(true);
+    if (editingId) {
+      const { error } = await supabase
+        .from("posts")
+        .update({
+          title,
+          summary,
+          content,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", editingId);
+      if (error) {
+        setMessage("Error updating post: " + error.message);
+      } else {
+        setMessage("Post updated successfully! ✅");
+        setEditingId(null);
+        setTitle("");
+        setSummary("");
+        setContent("");
+        fetchPosts();
+      }
     } else {
-      setMessage("Post created successfully! ✅");
-      setTitle("");
-      setSummary("");
-      setContent("");
-      fetchPosts();
+      const { error } = await supabase
+        .from("posts")
+        .insert({ title, summary, content });
+      if (error) {
+        setMessage("Error creating post: " + error.message);
+      } else {
+        setMessage("Post created successfully! ✅");
+        setTitle("");
+        setSummary("");
+        setContent("");
+        setImageUrl("");
+        fetchPosts();
+      }
     }
     setLoading(false);
   }
 
   async function handleDelete(id: string) {
+    if (!confirm("Are you sure you want to delete this post?")) return;
     await supabase.from("posts").delete().eq("id", id);
     fetchPosts();
   }
@@ -87,9 +155,13 @@ export default function Dashboard() {
       </div>
 
       <div className="bg-white border rounded-xl p-6 mb-8 shadow-sm">
-        <h2 className="text-xl font-semibold mb-4">New Post</h2>
+        <h2 className="text-xl font-semibold mb-4">
+          {editingId ? "✏️ Editing Post" : "New Post"}
+        </h2>
 
-        {message && <p className="text-green-600 text-sm mb-4">{message}</p>}
+        {message && (
+          <p className="text-green-600 text-sm mb-4 break-all">{message}</p>
+        )}
 
         <input
           type="text"
@@ -105,20 +177,55 @@ export default function Dashboard() {
           onChange={(e) => setSummary(e.target.value)}
           className="w-full border rounded-lg px-4 py-2 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
+
+        <div className="mb-3 border rounded-lg px-4 py-3 bg-gray-50">
+          <p className="text-sm text-gray-500 mb-2">
+            Upload an image to use in your post:
+          </p>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleImageUpload}
+            className="text-sm"
+          />
+          {uploading && (
+            <p className="text-sm text-blue-500 mt-1">Uploading...</p>
+          )}
+          {imageUrl && (
+            <div className="mt-2">
+              <img src={imageUrl} alt="uploaded" className="h-20 rounded" />
+              <p className="text-xs text-gray-400 mt-1 break-all">
+                Paste in content: ![image]({imageUrl})
+              </p>
+            </div>
+          )}
+        </div>
+
         <textarea
-          placeholder="Write your blog post content here..."
+          placeholder="Write your blog post content here... Use markdown! ## Heading, **bold**, - bullet, ![image](url)"
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          rows={8}
+          rows={10}
           className="w-full border rounded-lg px-4 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        <button
-          onClick={handleCreate}
-          disabled={loading || !title}
-          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? "Publishing..." : "Publish Post"}
-        </button>
+
+        <div className="flex gap-3">
+          <button
+            onClick={handleSave}
+            disabled={loading || !title}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? "Saving..." : editingId ? "Update Post" : "Publish Post"}
+          </button>
+          {editingId && (
+            <button
+              onClick={handleCancelEdit}
+              className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </div>
 
       <div>
@@ -142,12 +249,20 @@ export default function Dashboard() {
                 {new Date(post.created_at).toLocaleDateString()}
               </p>
             </div>
-            <button
-              onClick={() => handleDelete(post.id)}
-              className="text-red-500 hover:text-red-700 text-sm ml-4"
-            >
-              Delete
-            </button>
+            <div className="flex gap-2 ml-4">
+              <button
+                onClick={() => handleEdit(post)}
+                className="text-blue-500 hover:text-blue-700 text-sm"
+              >
+                Edit
+              </button>
+              <button
+                onClick={() => handleDelete(post.id)}
+                className="text-red-500 hover:text-red-700 text-sm"
+              >
+                Delete
+              </button>
+            </div>
           </div>
         ))}
       </div>
