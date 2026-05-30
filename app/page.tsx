@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase";
+import { createServerSupabaseClient } from "@/lib/supabase-server";
 
 export default async function Home() {
-  const supabase = createClient();
+  const supabase = createServerSupabaseClient();
   const { data: posts } = await supabase
     .from("posts")
     .select("*")
